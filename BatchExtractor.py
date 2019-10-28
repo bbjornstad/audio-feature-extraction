@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import librosa
 from AudioFeatureExtractor import AudioFeatureExtractor
+import inspect
 
 
 class BatchExtractor:
@@ -45,11 +46,16 @@ class BatchExtractor:
             self,
             sr=22050,
             frame_length=1024,
-            n_mfcc=20,
+            hop_ratio=4,
+            n_mfcc=12,
             audio_folder='raw_data/',
             audio_index='bird_vocalization_index.csv',
-            fmin=1024,
-            fmax=8192):
+            preemphasis=False,
+            pre_coef=0.97,
+            bp_filter=False,
+            fmin=None,
+            fmax=None,
+            trim=False):
         """
         Initializes a BatchExtractor object
 
@@ -60,6 +66,9 @@ class BatchExtractor:
             :int frame_length:      An integer power of two representing the
                                     frame length of windows used in extraction
                                     as a number of samples (default 1024)
+            :int hop_ratio:         An integer representing the desired ratio of
+                                    a frame to jump during windowed computations
+                                    (default 4) 
             :int n_mfcc:            An integer for the number of Mel-frequency
                                     cepstral coefficients to compute (default
                                     20)
@@ -71,12 +80,27 @@ class BatchExtractor:
                                     a file_name column identifying the file
                                     location of the MP3 relative to the
                                     audio_folder.
+            :bool preemphasis:      boolean value indicating whether preemphasis
+                                    filtering should be applied to audio during
+                                    extraction (default False)
+            :float pre_coef:        float between 0 and 1 representing the
+                                    preemphasis filter coefficient to use if the
+                                    setting is enabled (default 0.97)
+            :bool bp_filter:        boolean indicating whether or not hard
+                                    bandpass filtration should be applied to
+                                    spectrograms during extraction (default
+                                    False)
             :int fmin:              integer representing the minimum frequency
-                                    to be used for computation of certain
-                                    spectral based features (default 1024)
+                                    to be used for filtration of certain
+                                    spectral based features if enabled
+                                    (default None)
             :int fmax:              integer representing the maximum frequency
-                                    to be used for computation fo certain
-                                    spectral based features (default 8192)
+                                    to be used for filtration fo certain
+                                    spectral based features if enabled
+                                    (default None)
+            :bool trim:             boolean indicating whether or not to apply
+                                    simple trimming of the front of the audio
+                                    with onset detection (default False)
         """
 
         self.audio_folder = audio_folder
@@ -90,17 +114,19 @@ class BatchExtractor:
 
         self.sr = sr
         self.frame_length = frame_length
+        self.hop_ratio = hop_ratio
         self.n_mfcc = n_mfcc
         self.fmin = fmin
         self.fmax = fmax
 
         # intialize an underlying AudioFeatureExtractor with the given params.
         self.afe = AudioFeatureExtractor(
-            self.sr, self.frame_length, self.n_mfcc, self.fmin, self.fmax)
+            self.sr, self.frame_length, self.hop_ratio)
 
         # contains associations between string short forms and extraction
         # methods in the object's AudioFeatureExtractor
         self.extraction_dict = {'stft': self.afe.extract_stft,
+                                'cqt': self.afe.extract_cqt,
                                 'mfcc': self.afe.extract_mfcc,
                                 'melspec': self.afe.extract_melspectrogram,
                                 'zcr': self.afe.extract_zero_crossing_rate,
@@ -130,13 +156,8 @@ class BatchExtractor:
                                     coefficient of preemphasis filtering
                                     (default 0.97)
         """
-        self.afe.set_preemphasis(flag_apply, filter_coef)
-
-    def get_preemphasis_params(self):
-        """
-        Gets the current batchwide preemphasis filter prameters.
-        """
-        return self.afe.preemphasis, self.afe.pre_filter_coef
+        self.preemphasis = flag_apply
+        self.pre_coef = filter_coef
 
     def set_bp_filter(self, flag_apply, fmin, fmax):
         """
@@ -151,13 +172,21 @@ class BatchExtractor:
             :int fmax:              integer representing the maximum frequency
                                     which should be included after filtering
         """
-        self.afe.set_bp_filter(flag_apply, fmin=fmin, fmax=fmax)
+        self.bp_filter = flag_apply
+        self.fmin = fmin
+        self.fmax = fmax
 
-    def get_bp_filter_params(self):
+    def set_trim(self, flag_apply):
         """
-        Gets the current batchwide bandpass filter settings.
+        Sets batchwise front of audio trimming
+
+        Parameters:
+        -----------
+            :bool flag_apply:       boolean value indicating whether or not to
+                                    trim the beginning of each audio sample
+                                    using onset detection
         """
-        return self.afe.bp_filter, self.afe.fmin, self.afe.fmax
+        self.trim = flag_apply
 
     def batch_extract_feature(
             self,
@@ -181,10 +210,27 @@ class BatchExtractor:
                                     `feature_extraction/`)
         """
         method = self.extraction_dict[extraction_method]
+        method_args = inspect.signature(method).parameters
 
         for file_name in self.audio_index.file_name:
             audio = self.afe.get_audio(self.audio_folder + file_name)
-            feature_matrix = pd.DataFrame(method(audio).T)
+            if self.preemphasis:
+                audio = self.afe.apply_preemphasis(audio, self.pre_coef)
+            if trim:
+                audio = self.afe.trim_start(audio)
+            if self.bp_filter:
+                S = self.afe.extract_stft(audio)
+                S = self.afe.bp_filter_stft(S, self.fmin, self.fmax)
+                if extraction_method == 'stft':
+                    feature_matrix = pd.DataFrame(S.T)
+                elif 'S' in method_args:
+                    feature_matrix = pd.DataFrame(method(audio=None, S=S).T)
+                else:
+                    feature_matrix = pd.DataFrame(
+                        method(audio=audio, S=None).T)
+            else:
+                feature_matrix = pd.DataFrame(method(audio=audio, S=None).T)
+
             n_cols = len(feature_matrix.columns)
             feature_cols = [f'{extraction_method}_{i}' for i in range(n_cols)]
             feature_matrix.columns = feature_cols
@@ -313,7 +359,7 @@ class BatchExtractor:
                 method_df = method_df.append(new_series)
 
             method_df.columns = [
-                f'{col_name}_{t}' for col_name in col_names for t in range(max_frames)
+                f'{name}_{t}' for name in col_names for t in range(max_frames)
             ]
 
             flattened_df = pd.concat([flattened_df, method_df], axis=1)

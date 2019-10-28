@@ -16,26 +16,20 @@ class AudioFeatureExtractor:
         :int sr:            desired sample rate of audio
         :int frame_length:  an integer power of 2 representing the length of
                             fft and other windows
-        :int hop_length:    computed from the frame length, represents the 
-                            length that windows jump (currently 1/4 a window)
-        :int n_mfcc:        the desired number of Mel-frequency cepstral
-                            coefficients to compute
-        :int fmin:          the minimum frequency used to compute certain 
-                            features
-        :int fmax:          the maximum frequency used to compute certain
-                            features
+        :int hop_ratio:     integer representing the ratio of a frame to jump
+                            while performing framed computations
+        :int hop_length:    computed from the frame length and hop ratio,
+                            represents the length that windows jump in samples
+        :ndarray bin_frequencies: ndarray holding the frequency values for each
+                            number of fft bins that will be produced during
+                            Fourier transformations.
     """
 
     def __init__(
             self,
             sr=22050,
             frame_length=1024,
-            n_mfcc=20,
-            bp_filter=False,
-            fmin=1024,
-            fmax=8192,
-            preemphasis=False,
-            pre_filter_coef=0.97):
+            hop_ratio=4):
         """
         Initializes an AudioFeatureExtractor object
 
@@ -45,100 +39,73 @@ class AudioFeatureExtractor:
                                 (default 22050)
             :int frame_length:  an integer power of two for the frame length to
                                 be used in feature extraction (default 1024)
-            :int n_mfcc:        the number of Mel-frequency cepstral
-                                coefficients to compute (default 20)
-            :bool bp_filter:    boolean identifying whether stfts should be
-                                hard bandpass filtered on computation (default
-                                False)
-            :int fmin:          integer for the lowest frequency that will be
-                                computed in certain features (default 1024)
-            :int fmax:          integer for the highest frequency that will be
-                                computed in certain features.
-            :bool preemphasis:  a boolean indicating whether or not preemphasis
-                                filter should be applied to the audio upon
-                                loading with get_audio (default False)
-            :float pre_filter_coef: a float between 0 and 1 that represents the
-                                filter coefficient to be used in preemphasis
-                                filtering (default 0.97)
+            :int hop_ratio:     integer representing the ratio of a frame length
+                                to hop during framed computations (default 4)
         """
         self.sr = sr
         self.frame_length = frame_length
-        self.hop_length = int(self.frame_length / 4)
-        self.n_mfcc = n_mfcc
-        self.bp_filter = bp_filter
-        self.fmin = fmin
-        self.fmax = fmax
-        self.preemphasis = preemphasis
-        self.pre_filter_coef = pre_filter_coef
+        self.hop_ratio = hop_ratio
+        self.hop_length = int(self.frame_length / self.hop_ratio)
+        self.bin_frequencies = librosa.fft_frequencies(
+            self.sr,
+            n_fft=self.frame_length)
 
-        # -----
+        # ---------
         # Utilities
-        # -----
+        # ---------
     def get_audio(self, file_path):
         """
         Gets audio as a numpy array with the object's sample rate from the 
         given string file path.
         """
         x, sr = librosa.load(file_path, sr=self.sr)
-        if self.preemphasis:
-            x = self.apply_preemphasis(x)
         return x
 
-    def apply_preemphasis(self, audio):
+    def apply_preemphasis(self, audio, coef=0.97):
         """
         Applies a preemphasis filter to the given audio. A preemphasis filter is
         a simple first-order differencing filter applied to audio, which can
         have the effect of emphasizing features.
         """
-        pre = librosa.effects.preemphasis(audio, coef=self.pre_filter_coef)
+        pre = librosa.effects.preemphasis(audio, coef=coef)
         return pre
 
-    def set_preemphasis(self, flag_apply, filter_coef=0.97):
-        """
-        Sets the preemphasis parameters for the apply_preemphasis function.
+    def detect_onsets(self, audio):
+        onsets = librosa.onset.onset_detect(
+            audio, sr=self.sr, hop_length=self.hop_length, units='samples')
+        return onsets
 
-        Parameters:
-        -----------
-            :bool flat_apply:       boolean flag indicating whether or not
-                                    preemphasis should be applied when loading
-                                    audio with get_audio
-            :float filter_coef:     float between 0 and 1 indicating the desired
-                                    filter coeffecient to use when applying
-                                    preemphasis filtering (default 0.97)
-        """
-        self.preemphasis = flag_apply
-        self.pre_filter_coef = filter_coef
+    def trim_start(self, audio):
+        onsets = self.detect_onsets(audio)
+        audio = audio[onsets[0]:]
+        return audio
 
-    def bp_filter_stft(self, S):
+    def bp_filter_stft(self, S, fmin, fmax):
         """
         Removes sections of the given stft below and above the given min and max
         frequencies, effectively a hard bandpass filter between the given
-        frequency window. Set the params with set_bp_filter.
+        frequency window.
 
         Parameters:
         -----------
             :ndarray S:             stft array
+            :int fmin:              frequency to cut below
+            :int fmax:              frequency to cut above
         """
-        fft_freqs = librosa.fft_frequencies(self.sr, self.frame_length)
         # get the indices where the frequencies occur
-        min_index = next(i for i, f in enumerate(fft_freqs) if f > self.fmin)
-        max_index = next(i for i, f in enumerate(fft_freqs) if f > self.fmax)
+        min_index = next(i for i, f in enumerate(
+            self.bin_frequencies) if f > fmin)
+        max_index = next(i for i, f in enumerate(
+            self.bin_frequencies) if f > fmax)
 
         s_filt = S
         s_filt[:min_index, :] = 0
         s_filt[max_index:, :] = 0
         return s_filt
 
-        return S[min_index:max_index, :]
-
-    def set_bp_filter(self, flag_apply, fmin, fmax):
-        self.bp_filter = flag_apply
-        self.fmin = fmin
-        self.fmax = fmax
-
-        # -----
+        # ------------------
         # Feature Extraction
-        # -----
+        # ------------------
     def extract_stft(self, audio):
         """
         Extracts the short term fourier transform of the given audio, a process
@@ -150,17 +117,27 @@ class AudioFeatureExtractor:
             audio,
             n_fft=self.frame_length,
             hop_length=self.hop_length)
-        if self.bp_filter:
-            stft = self.bp_filter_stft(stft)
         return stft
 
-    def extract_chroma_stft(self, audio):
+    def extract_cqt(self, audio):
+        """
+        Extracts the Constant-Q spectrogram transform
+        """
+        cqt = librosa.cqt(
+            audio,
+            sr=self.sr,
+            hop_length=self.hop_length)
+        return cqt
+
+    def extract_chroma_stft(self, audio=None, S=None):
         """
         Extracts a chromagram of the given audio, like a spectrogram but binned 
         into the chromatic scale.
         """
-        S = np.abs(self.extract_stft(audio))
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S, power=2)
         chroma_stft = librosa.feature.chroma_stft(
+            y=audio,
             S=S,
             sr=self.sr,
             n_fft=self.frame_length,
@@ -168,132 +145,157 @@ class AudioFeatureExtractor:
         )
         return chroma_stft
 
-    def extract_chroma_cqt(self, audio):
+    def extract_chroma_cqt(self, audio=None, C=None):
         """
         Extracts a constant-Q chromagram of the given audio.
         """
         chroma_cqt = librosa.feature.chroma_cqt(
-            audio,
+            y=audio,
+            C=C,
             sr=self.sr,
             hop_length=self.hop_length)
         return chroma_cqt
 
-    def extract_chroma_cens(self, audio):
+    def extract_chroma_cens(self, audio=None, C=None):
         """
         Extracts an Energy Normalized chromagram of the given audio.
         """
         chroma_cens = librosa.feature.chroma_cens(
-            audio,
+            y=audio,
+            C=C,
             sr=self.sr,
             hop_length=self.hop_length)
         return chroma_cens
 
-    def extract_melspectrogram(self, audio):
+    def extract_melspectrogram(self, audio=None, S=None):
         """
         Extracts a Mel-windowed spectrogram of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S, power=2)
         melspectrogram = librosa.feature.melspectrogram(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
             n_fft=self.frame_length,
-            hop_length=self.hop_length,
-            fmin=self.fmin,
-            fmax=self.fmax)
+            hop_length=self.hop_length)
         return melspectrogram
 
-    def extract_mfcc(self, audio):
+    def extract_mfcc(self, audio=None, S=None, n_mfcc=12):
         """
         Extracts a number of Mel-frequency cepstral coefficients from the
         given audio, where the number is controlled as an object attribute.
         """
+        if not isinstance(S, NoneType):
+            S = self.extract_melspectrogram(audio=None, S=S)
         mfcc = librosa.feature.mfcc(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
-            n_mfcc=self.n_mfcc,
+            n_mfcc=n_mfcc,
             n_fft=self.frame_length,
-            hop_length=self.hop_length,
-            fmin=self.fmin,
-            fmax=self.fmax)
+            hop_length=self.hop_length)
         return mfcc
 
-    def extract_rms(self, audio):
+    def extract_rms(self, audio=None, S=None):
         """
         Extracts the root-mean-square value for each frame of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         rms = librosa.feature.rms(
-            audio,
+            y=audio,
+            S=S,
             frame_length=self.frame_length,
             hop_length=self.hop_length
         )
         return rms
 
-    def extract_spectral_centroid(self, audio):
+    def extract_spectral_centroid(self, audio=None, S=None):
         """
         Extracts the spectral centroid of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         spectral_centroid = librosa.feature.spectral_centroid(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
             n_fft=self.frame_length,
             hop_length=self.hop_length
         )
         return spectral_centroid
 
-    def extract_spectral_bandwidth(self, audio):
+    def extract_spectral_bandwidth(self, audio=None, S=None):
         """
         Extracts the spectral bandwidth of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         spectral_bandwidth = librosa.feature.spectral_bandwidth(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
             n_fft=self.frame_length,
             hop_length=self.hop_length,
         )
         return spectral_bandwidth
 
-    def extract_spectral_contrast(self, audio):
+    def extract_spectral_contrast(self, audio=None, S=None):
         """
         Extracts the spectral contrast of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         spectral_contrast = librosa.feature.spectral_contrast(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
             n_fft=self.frame_length,
             hop_length=self.hop_length
         )
         return spectral_contrast
 
-    def extract_spectral_flatness(self, audio):
+    def extract_spectral_flatness(self, audio=None, S=None):
         """
         Extracts the spectral flatness of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         spectral_flatness = librosa.feature.spectral_flatness(
-            audio,
+            y=audio,
+            S=S,
             n_fft=self.frame_length,
             hop_length=self.hop_length
         )
         return spectral_flatness
 
-    def extract_spectral_rolloff(self, audio):
+    def extract_spectral_rolloff(self, audio=None, S=None):
         """
         Extracts the spectral rolloff of the given audio.
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         spectral_rolloff = librosa.feature.spectral_rolloff(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
             n_fft=self.frame_length,
             hop_length=self.hop_length
         )
         return spectral_rolloff
 
-    def extract_poly_features(self, audio, poly_order=3):
+    def extract_poly_features(self, audio=None, S=None, poly_order=3):
         """
         Extracts polynomial features from the spectrogram of the given audio,
         using the optionally specified poly_order parameter to control the
         degree (default 3).
         """
+        if not isinstance(S, NoneType):
+            S, phase = librosa.magphase(S)
         poly_features = librosa.feature.poly_features(
-            audio,
+            y=audio,
+            S=S,
             sr=self.sr,
             n_fft=self.frame_length,
             hop_length=self.hop_length,
@@ -301,20 +303,24 @@ class AudioFeatureExtractor:
         )
         return poly_features
 
-    def extract_tonnetz(self, audio):
+    def extract_tonnetz(self, audio=None, chroma=None):
         """
         Extracts the tonnetz (tonal centroid features) from the given audio.
         """
         tonnetz = librosa.feature.tonnetz(
-            audio,
+            y=audio,
+            chroma=chroma,
             sr=self.sr
         )
         return tonnetz
 
-    def extract_zero_crossing_rate(self, audio):
+    def extract_zero_crossing_rate(self, audio=None, S=None):
         """
         Extracts the zero crossing rate from the given audio.
         """
+        if not isinstance(S, NoneType):
+            audio = librosa.istft(
+                S, hop_length=self.hop_length, win_length=self.frame_length)
         zero_crossing_rate = librosa.feature.zero_crossing_rate(
             audio,
             frame_length=self.frame_length,
@@ -337,18 +343,18 @@ class AudioFeatureExtractor:
         """
         pass
 
-        # -----
-        # Feature Manipulation
-        # -----
+    # --------------------
+    # Feature Manipulation
+    # --------------------
     def feature_delta(self, audio):
         pass
 
     def feature_stack_delta(self, audio):
         pass
 
-    # -----
+    # -----------------
     # Feature Inversion
-    # -----
+    # -----------------
     def inverse_mel_to_stft(self, melspectrogram):
         pass
 
