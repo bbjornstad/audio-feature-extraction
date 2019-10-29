@@ -57,6 +57,16 @@ class AudioFeatureExtractor:
         """
         Gets audio as a numpy array with the object's sample rate from the 
         given string file path.
+
+        Parameters:
+        -----------
+            :str file_path:     string representing the file path to an audio
+                                sample to load
+
+        Returns:
+        --------
+            :np.ndarray x:      1d numpy array of samples for the audio sampled 
+                                at the object's sample rate
         """
         x, sr = librosa.load(file_path, sr=self.sr)
         return x
@@ -66,16 +76,54 @@ class AudioFeatureExtractor:
         Applies a preemphasis filter to the given audio. A preemphasis filter is
         a simple first-order differencing filter applied to audio, which can
         have the effect of emphasizing features.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:      1d numpy array of samples representing audio
+            :float coef:            float between 0 and 1 which is the
+                                    coefficient of preemphasis to be applied
+                                    (default 0.97)
+
+        Returns:
+        --------
+            :np.ndarray pre:        1d numpy array of audio with the preemphasis
+                                    filter applied
         """
         pre = librosa.effects.preemphasis(audio, coef=coef)
         return pre
 
     def detect_onsets(self, audio):
+        """
+        Detects the onsets in the given audio as a list of samples at which
+        onsets occur.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:      1d numpy array of samples representing audio
+
+        Returns:
+        --------
+            :np.ndarray onsets:     1d numpy array of sample locations which
+                                    represent the onset locations in the audio
+        """
         onsets = librosa.onset.onset_detect(
             audio, sr=self.sr, hop_length=self.hop_length, units='samples')
         return onsets
 
     def trim_start(self, audio):
+        """
+        Trims the given audio so that the start of the audio array is the
+        location of the first onset.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:      1d numpy array of samples representing audio
+
+        Returns:
+        --------
+            :np.ndarray audio:      1d numpy array of samples representing audio
+                                    starting at the first onset
+        """
         onsets = self.detect_onsets(audio)
         audio = audio[onsets[0]:]
         return audio
@@ -84,13 +132,19 @@ class AudioFeatureExtractor:
         """
         Removes sections of the given stft below and above the given min and max
         frequencies, effectively a hard bandpass filter between the given
-        frequency window.
+        frequency window. Normally this method is used to reduce environmental
+        noise that is frequently present in audio.
 
         Parameters:
         -----------
-            :ndarray S:             stft array
+            :np.ndarray S:          stft array
             :int fmin:              frequency to cut below
             :int fmax:              frequency to cut above
+
+        Returns:
+        --------
+            :np.ndarray s_filt:     stft filtered so that frequencies in bins 
+                                    above fmax and below fmin are set to 0
         """
         # get the indices where the frequencies occur
         min_index = next(i for i, f in enumerate(
@@ -112,6 +166,16 @@ class AudioFeatureExtractor:
         in which an audio sample is chunked into frames and the associated
         frequency energy content is analyzed, thus transforming from the time
         domain to the frequency domain (in timed chunks).
+
+        Parameters:
+        -----------
+            :np.ndarray audio:      1d array of samples representing audio
+
+        Returns:
+        --------
+            :np.ndarray stft:       2d complex array representing the magnitude
+                                    and phase of the energy contained at each
+                                    frequency for each frame
         """
         stft = librosa.stft(
             audio,
@@ -121,7 +185,16 @@ class AudioFeatureExtractor:
 
     def extract_cqt(self, audio):
         """
-        Extracts the Constant-Q spectrogram transform
+        Extracts the Constant-Q spectrogram transform.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:      1d array of samples representing audio
+
+        Returns:
+        --------
+            :np.ndarray cqt:        2d array representing the constant-Q
+                                    spectrgram transform of the audio
         """
         cqt = librosa.cqt(
             audio,
@@ -132,9 +205,23 @@ class AudioFeatureExtractor:
     def extract_chroma_stft(self, audio=None, S=None):
         """
         Extracts a chromagram of the given audio, like a spectrogram but binned 
-        into the chromatic scale.
+        into the chromatic scale. Following the librosa standard, only one of 
+        audio or S must be provided. If S is not provided, then librosa will
+        handle the computation of the STFT of the audio using the instance's
+        attributes.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray S:              2d array of a precomputed stft of audio
+
+        Returns:
+        --------
+            :np.ndarray chroma_stft:    2d array representing the magnitude and
+                                        phase of the energy contained at each 
+                                        frequency for each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S, power=2)
         chroma_stft = librosa.feature.chroma_stft(
             y=audio,
@@ -147,7 +234,22 @@ class AudioFeatureExtractor:
 
     def extract_chroma_cqt(self, audio=None, C=None):
         """
-        Extracts a constant-Q chromagram of the given audio.
+        Extracts a constant-Q chromagram of the given audio, essentially a
+        chromagram of the constant-Q spectrogram transform. Following the
+        librosa standard, only one of audio or C must be provided. If C is not
+        provided, then librosa will handle the computation of the CQT of the
+        audio using the instance's attributes.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray C:              2d array of a precomputed CQT of audio
+
+        Returns:
+        --------
+            :np.ndarray chroma_cqt:     2d array which is the chromagram of the
+                                        constant-Q transform.
+
         """
         chroma_cqt = librosa.feature.chroma_cqt(
             y=audio,
@@ -158,7 +260,20 @@ class AudioFeatureExtractor:
 
     def extract_chroma_cens(self, audio=None, C=None):
         """
-        Extracts an Energy Normalized chromagram of the given audio.
+        Extracts an Energy Normalized chromagram of the given audio. Following
+        the librosa standard, only one of audio or C must be provided. If C is
+        not provided, then librosa will handle the computation of the CQT of the
+        audio using the instance's attributes.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray C:              2d array of a precomputed CQT of audio
+
+        Returns:
+        --------
+            np.ndarray chroma_cens:     2d array which is the energy normalized
+                                        chromagram
         """
         chroma_cens = librosa.feature.chroma_cens(
             y=audio,
@@ -169,9 +284,24 @@ class AudioFeatureExtractor:
 
     def extract_melspectrogram(self, audio=None, S=None):
         """
-        Extracts a Mel-windowed spectrogram of the given audio.
+        Extracts a Mel-windowed spectrogram of the given audio. This is like a
+        spectrogram, but with a series of Mel-filters applied so as to better
+        mimic the process of human hearing. Following the librosa standard, only
+        one of audio or S must be provided. If S is not provided, then librosa
+        will handle the computation of the STFT of the audio using the
+        instance's attributes.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray S:              2d array of a precomputed STFT of audio
+
+        Returns:
+        --------
+            np.ndarray melspectrogram:  2d array which is the Mel-windowed
+                                        spectrogram
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S, power=2)
         melspectrogram = librosa.feature.melspectrogram(
             y=audio,
@@ -184,9 +314,28 @@ class AudioFeatureExtractor:
     def extract_mfcc(self, audio=None, S=None, n_mfcc=12):
         """
         Extracts a number of Mel-frequency cepstral coefficients from the
-        given audio, where the number is controlled as an object attribute.
+        given audio, where the number is controlled as an object attribute. This
+        is achieved by performing a discrete cosine transformation to the
+        Melspectrogram. The number of coefficients to be computed can be tuned
+        using the n_mfcc parameter. Following the librosa standard, only one of
+        audio or S must be provided. If S is not provided, then librosa will
+        handle the computation of a Melspectrogram using the instance's
+        attributes. If S is provided, then the melspectrogram is extracted to
+        align with librosa's mfcc extraction parameters.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray S:              2d array of a precomputed STFT of audio
+            :int n_mfcc:                number of Mel-frequency cepstral
+                                        coefficients to compute (default 12)
+
+        Returns:
+        --------
+            :np.ndarray mfcc:           2d array of the number of Mel-frequency
+                                        cepstral coefficients for each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S = self.extract_melspectrogram(audio=None, S=S)
         mfcc = librosa.feature.mfcc(
             y=audio,
@@ -200,8 +349,21 @@ class AudioFeatureExtractor:
     def extract_rms(self, audio=None, S=None):
         """
         Extracts the root-mean-square value for each frame of the given audio.
+        Following the librosa standard, only one of audio or S must be provided.
+        If S is not provided, then librosa will handle the framed 
+        root-mean-square computation using the instance's attributes.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray S:              2d array of a precomputed STFT of audio
+
+        Returns:
+        --------
+            :np.ndarray:                1d array of root-mean-square value for
+                                        each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         rms = librosa.feature.rms(
             y=audio,
@@ -214,8 +376,20 @@ class AudioFeatureExtractor:
     def extract_spectral_centroid(self, audio=None, S=None):
         """
         Extracts the spectral centroid of the given audio.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:              1d array of samples representing 
+                                            audio
+            :np.ndarray S:                  2d array of a precomputed STFT of 
+                                            audio
+
+        Returns:
+        --------
+            :np.ndarray spectral_centroid:  2d array which is the computed
+                                            spectral centroid in each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         spectral_centroid = librosa.feature.spectral_centroid(
             y=audio,
@@ -229,8 +403,20 @@ class AudioFeatureExtractor:
     def extract_spectral_bandwidth(self, audio=None, S=None):
         """
         Extracts the spectral bandwidth of the given audio.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:              1d array of samples representing 
+                                            audio
+            :np.ndarray S:                  2d array of a precomputed STFT of 
+                                            audio
+
+        Returns:
+        --------
+            :np.ndarray spectral_bandwidth: 2d array which is the computed
+                                            spectral bandwidth in each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         spectral_bandwidth = librosa.feature.spectral_bandwidth(
             y=audio,
@@ -244,8 +430,20 @@ class AudioFeatureExtractor:
     def extract_spectral_contrast(self, audio=None, S=None):
         """
         Extracts the spectral contrast of the given audio.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:              1d array of samples representing 
+                                            audio
+            :np.ndarray S:                  2d array of a precomputed STFT of 
+                                            audio
+
+        Returns:
+        --------
+            :np.ndarray spectral_contrast:  2d array which is the computed
+                                            spectral contrast in each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         spectral_contrast = librosa.feature.spectral_contrast(
             y=audio,
@@ -259,8 +457,20 @@ class AudioFeatureExtractor:
     def extract_spectral_flatness(self, audio=None, S=None):
         """
         Extracts the spectral flatness of the given audio.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:              1d array of samples representing 
+                                            audio
+            :np.ndarray S:                  2d array of a precomputed STFT of 
+                                            audio
+
+        Returns:
+        --------
+            :np.ndarray spectral_flatness:  2d array of the computed spectral
+                                            flatness in each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         spectral_flatness = librosa.feature.spectral_flatness(
             y=audio,
@@ -273,8 +483,20 @@ class AudioFeatureExtractor:
     def extract_spectral_rolloff(self, audio=None, S=None):
         """
         Extracts the spectral rolloff of the given audio.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:              1d array of samples representing 
+                                            audio
+            :np.ndarray S:                  2d array of a precomputed STFT of 
+                                            audio
+
+        Returns:
+        --------
+            :np.ndarray spectral_rolloff:   2d array which is the computed
+                                            spectral rolloff in each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         spectral_rolloff = librosa.feature.spectral_rolloff(
             y=audio,
@@ -290,8 +512,20 @@ class AudioFeatureExtractor:
         Extracts polynomial features from the spectrogram of the given audio,
         using the optionally specified poly_order parameter to control the
         degree (default 3).
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray S:              2d array of a precomputed STFT of audio
+            :int poly_order:            integer representing the desired order
+                                        of polynomial features to fit
+
+        Returns:
+        --------
+            :np.ndarray poly_fetaures:  2d array which is the computed
+                                        polynomial fittings of the spectrogram
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             S, phase = librosa.magphase(S)
         poly_features = librosa.feature.poly_features(
             y=audio,
@@ -317,15 +551,25 @@ class AudioFeatureExtractor:
     def extract_zero_crossing_rate(self, audio=None, S=None):
         """
         Extracts the zero crossing rate from the given audio.
+
+        Parameters:
+        -----------
+            :np.ndarray audio:          1d array of samples representing audio
+            :np.ndarray S:              2d array of a precomputed STFT of audio
+
+        Returns:
+        --------
+            :np.ndarray zcr:            1d array which is the computed zero
+                                        crossing rate in each frame
         """
-        if not isinstance(S, NoneType):
+        if S is not None:
             audio = librosa.istft(
                 S, hop_length=self.hop_length, win_length=self.frame_length)
-        zero_crossing_rate = librosa.feature.zero_crossing_rate(
+        zcr = librosa.feature.zero_crossing_rate(
             audio,
             frame_length=self.frame_length,
             hop_length=self.hop_length)
-        return zero_crossing_rate
+        return zcr
 
     def extract_tempogram(self, audio):
         """

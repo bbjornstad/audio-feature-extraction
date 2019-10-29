@@ -34,12 +34,23 @@ class BatchExtractor:
                                     as a dataframe, representing metadata
                                     and labeling information for each audio
                                     sample in the audio_folder
+        :bool preemphasis:          boolean indicating whether batchwide
+                                    preemphasis filtering should be applied
+        :float pre_coef:            float between 0 and 1 representing the
+                                    coefficient of filtering to use in
+                                    preemphasis if enabled
+        :bool bp_filter:            bool indicating whether batchwide hard
+                                    cutoff below and above specified frequencies
+                                    should be performed
         :int fmin:                  integer representing the minimum frequency
                                     that will be computed for certain spectral
-                                    based features.
+                                    based features
         :int fmax:                  integer representing the maximum frequency
                                     that will be computed for certain spectral
-                                    based features.
+                                    based features
+        :bool trim:                 boolean indicating whether simple trimming
+                                    of the start of audio should be performed
+                                    using onset detection
     """
 
     def __init__(
@@ -118,6 +129,7 @@ class BatchExtractor:
         self.n_mfcc = n_mfcc
         self.fmin = fmin
         self.fmax = fmax
+        self.trim = trim
 
         # intialize an underlying AudioFeatureExtractor with the given params.
         self.afe = AudioFeatureExtractor(
@@ -216,7 +228,7 @@ class BatchExtractor:
             audio = self.afe.get_audio(self.audio_folder + file_name)
             if self.preemphasis:
                 audio = self.afe.apply_preemphasis(audio, self.pre_coef)
-            if trim:
+            if self.trim:
                 audio = self.afe.trim_start(audio)
             if self.bp_filter:
                 S = self.afe.extract_stft(audio)

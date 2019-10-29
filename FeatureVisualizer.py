@@ -6,15 +6,54 @@ import matplotlib.pyplot as plt
 
 
 class FeatureVisualizer:
+    """
+    This class implements an object that can handle the visualization of various
+    features extracted from audio samples. Contains some attributes that store
+    the location of extracted data and plotting defaults.
+
+    Attributes:
+    -----------
+        :str feature_folder:        string representing a path to a folder
+                                    containing feature matrices stored as CSV
+                                    files in the standard
+                                    {sample_name}_{feat_abbrev}_features.csv
+                                    (default 'feature_extraction/')
+        :tuple(float) figure_size:  tuple of floats that represents the desired 
+                                    figure size to use for matplotlib (default 
+                                    (18,8)) 
+    """
     def __init__(
             self,
             feature_folder='feature_extraction/',
-            default_figure_size=(18, 8)):
-        self.default_figure_size = default_figure_size
+            figure_size=(18, 8)):
+        """
+        Instantiates a FeatureVisualizer object with the given parameters.
+
+        Parameters:
+        -----------
+            :str feature_folder:            string representing a path to a
+                                            folder containing feature matrices
+                                            stored as CSV files in the standard
+                                            {sample_name}_{feat_abbrev}_features
+                                            .csv (default 'feature_extraction/')
+            :tuple(float) figure_size:      tuple of floats representing the
+                                            desired figure size to use for
+                                            matplotlib (default (18,8))
+        """
+        self.figure_size = default_figure_size
         self.feature_folder = feature_folder
 
     def plot_melspec(self, sample_name):
-        melspec_fig = plt.figure(figsize=self.default_figure_size)
+        """
+        Plots the melspectrogram of the given sample, if it exists in the
+        instance's feature_folder.
+
+        Parameters:
+        -----------
+            :str sample_name:               string representing the file name
+                                            within the feature_folder to display
+        """
+        melspec_fig = plt.figure(figsize=self.figure_size)
         try:
             melspec = pd.read_csv(
                 f'{self.feature_folder}{sample_name}_melspec_features.csv').T
@@ -27,7 +66,16 @@ class FeatureVisualizer:
         return melspec_fig
 
     def plot_chromagram(self, sample_name):
-        cstft_fig = plt.figure(figsize=self.default_figure_size)
+        """
+        Plots the chromagram of the given sample, if it exists in the instance's
+        feature_folder.
+
+        Parameters:
+        -----------
+            :str sample_name:               string representing the file name
+                                            within the feature_folder to display
+        """
+        cstft_fig = plt.figure(figsize=self.figure_size)
         try:
             cstft = pd.read_csv(
                 f'{self.feature_folder}{sample_name}_cstft_features.csv').T
@@ -39,7 +87,16 @@ class FeatureVisualizer:
         return cstft_fig
 
     def plot_spectrogram(self, sample_name):
-        stft_fig = plt.figure(figsize=self.default_figure_size)
+        """
+        Plots the spectrogram of the given sample, if it exists in the 
+        instance's feature_folder.
+
+        Parameters:
+        -----------
+            :str sample_name:               string representing the file name
+                                            within the feature_folder to display
+        """
+        stft_fig = plt.figure(figsize=self.figure_size)
         try:
             stft = pd.read_csv(
                 f'{self.feature_folder}{sample_name}_stft_features.csv').T
