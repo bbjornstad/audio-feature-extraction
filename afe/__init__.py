@@ -1,3 +1,3 @@
-from AudioFeatureExtractor import AudioFeatureExtractor
-from BatchExtractor import BatchExtractor
-from FeatureVisualizer import FeatureVisualizer
+from .AudioFeatureExtractor import AudioFeatureExtractor
+from .BatchExtractor import BatchExtractor
+from .FeatureVisualizer import FeatureVisualizer
