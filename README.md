@@ -28,8 +28,24 @@ An AudioFeatureExtractor:
 Currently the following feature extraction methods are implemented (all feature extraction methods begin with the prefix `extract_`:
 - extract_stft: extracts a short time Fourier transform
 - extract_cqt: extracts a constant-Q transform
+- extract_chroma_stft: extracts a chromagram
+- extract_chroma_cqt: extracts a chromagram of a CQT
+- extract_chroma_cens: extracts an energy normalized variant chromagram
+- extract_melspectrogram: extracts a Mel-windowed spectrogram
+- extract_mfcc: extracts the Mel-frequency cepstral coefficients
+- extract_rms: extracts the framed root-mean-square
+- extract_spectral_centroid: extracts the spectral centroid
+- extract_spectral_bandwidth: extracts the spectral bandwidth
+- extract_spectral_contrast: extracts the spectral contrast
+- extract_spectral_flatness: extracts the spectral flatness
+- extract_spectral_rolloff: extracts the spectral rolloff
+- extract_zero_crossing_rate: extracts the framed zero crossing rate
+- extract_tonnetz: extracts the tonnetz (tonal centroid)
+- extract_poly_features: extracts polynomial combinations of features from a given feature matrix or audio
 
-Ultimately I would like to add these features to the AudioFeatureExtractor:
+
+Ultimately I would like to add these functionalities to the AudioFeatureExtractor:
+- Tempo related feature extraction methods
 - Feature manipulation tools offered by librosa
 - Feature inversion tools to translate back from the feature space to the auditory space, to hopefully facilitate some interesting generative projects later on
 - Perhaps incorporating some other utilities could be helpful for later projects or methods of feature engineering.
